@@ -70,7 +70,7 @@ jobs:
           export CGO_ENABLED=0
           export GOOS=linux
           export GOARCH=amd64
-          go build -trimpath -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }}" \
+          go build -trimpath  -buildvcs=false  -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }}" \
             -o /tmp/xehn-linux .
           file /tmp/xehn-linux
 
