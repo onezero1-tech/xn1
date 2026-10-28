@@ -85,8 +85,12 @@ tar -C "$DIST" -czf "$TAR_PATH" "XEHN"
 echo "TAR ready: $TAR_PATH ($(du -h "$TAR_PATH" | cut -f1))"
 # Produce zip
 ZIP_PATH="$DIST/XEHN.$VERSION.zip"
-( cd "$DIST" && zip -qr "$ZIP_PATH" "XEHN" )
-echo "ZIP ready: $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
+if command -v zip &>/dev/null; then
+  ( cd "$DIST" && zip -qr "$ZIP_PATH" "XEHN" )
+  echo "ZIP ready: $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
+else
+  echo "SKIP: zip not installed (tar.gz is sufficient)" >&2
+fi
 echo ""
 echo "Package contents:"
 find "$ROOT" -type f | sed "s|$ROOT/||" | while read f; do
