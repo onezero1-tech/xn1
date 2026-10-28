@@ -1,0 +1,122 @@
+name: Build Linux (manylinux 2.28 x86_64)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: false
+        default: ''
+  schedule:
+    # Weekly rebuild to refresh the bundled default mihomo core version.
+    - cron: '0 6 * * 0'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    name: manylinux 2.28 x86_64
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ -n "${{ github.ref }}" ]; then
+            VERSION="${{ github.ref }}"
+            VERSION="${VERSION#refs/tags/}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="0.0.0-$(date +%Y%m%d%H%M%S)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Install Go
+        shell: bash
+        run: |
+          # manylinux images ship an old Go; install the toolchain pinned by go.mod.
+          TOOLCHAIN=$(grep -E '^go ' go.mod | awk '{print $2}')
+          echo "Required Go: $TOOLCHAIN"
+          URL="https://go.dev/dl/go${TOOLCHAIN}.linux-amd64.tar.gz"
+          curl -fsSL "$URL" -o /tmp/go.tgz
+          tar -C /usr/local -xzf /tmp/go.tgz
+          /usr/local/go/bin/go version
+
+      - name: Build xehn (manylinux 2.28 x86_64)
+        shell: bash
+        run: |
+          export PATH="/usr/local/go/bin:$PATH"
+          export HOME=/root
+          export GOPATH=/root/go
+          export GOMODCACHE=/root/go/pkg/mod
+          export GOCACHE=/root/.cache/go-build
+          export GOPROXY=https://goproxy.cn,direct
+          export CGO_ENABLED=0
+          export GOOS=linux
+          export GOARCH=amd64
+          go build -trimpath -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }}" \
+            -o /tmp/xehn-linux .
+          file /tmp/xehn-linux
+
+      - name: Package
+        shell: bash
+        run: |
+          bash pack.sh -Version "${{ steps.ver.outputs.version }}" -BinPath /tmp/xehn-linux
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xehn-linux-${{ steps.ver.outputs.version }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: XEHN ${{ steps.ver.outputs.version }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+          body: |
+            ## XEHN ${{ steps.ver.outputs.version }} — Linux (manylinux 2.28 x86_64)
+
+            Built for **glibc ≥ 2.28** (manylinux 2.28), compatible with:
+            - RHEL 8 / CentOS 8+ (glibc 2.28+)
+            - Ubuntu 18.04+ / Debian 10+
+            - Fedora 29+
+            - OpenWrt 21.02+ (glibc)
+            - Alpine (with glibc installed)
+
+            ### Quick start
+            ```bash
+            tar xf xehn-linux-${{ steps.ver.outputs.version }}.tar.gz
+            cd xehn
+            sudo ./xehn connect
+            ```
+
+            The binary is statically linked (CGO_ENABLED=0) and self-contained:
+            it downloads the mihomo core on first connect.
+
+            > **Note:** this is a CLI-only build. The native GUI is Windows-only; on
+            > Linux use `xehn gui` (terminal TUI) or `xehn connect`.
+
+          make_latest: true(base) 
