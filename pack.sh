@@ -15,11 +15,17 @@
 #
 # Outputs: dist/XEHN.<version>.tar.gz and dist/XEHN.<version>.zip
 set -euo pipefail
-VERSION="${Version:-}"
-BIN_PATH="${BinPath:-}"
+VERSION=""
+BIN_PATH=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -Version) VERSION="$2"; shift 2 ;;
+    -BinPath)  BIN_PATH="$2";  shift 2 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="$SCRIPT_DIR/dist"
-STAGE="$DIST/build"
 ROOT="$DIST/XEHN"
 # Resolve version
 if [ -z "$VERSION" ]; then
@@ -36,7 +42,7 @@ if [ ! -f "$BIN_PATH" ]; then
 fi
 # Fresh staging tree
 rm -rf "$DIST"
-mkdir -p "$STAGE" "$ROOT/core" "$ROOT/licenses"
+mkdir -p "$ROOT/core" "$ROOT/licenses"
 # Copy the binary as the sole program file
 cp "$BIN_PATH" "$ROOT/xehn"
 chmod +x "$ROOT/xehn"
@@ -57,11 +63,12 @@ else
   echo "WARNING: third_party/GPL-3.0.txt missing" >&2
 fi
 # Verify no credentials/runtime state leaked
-FORBIDDEN=(
-  warpscout-account.json state.json settings.json cache.json
-  config.yaml cache.db xehn.log
-)
-LEAKED=$(find "$ROOT" -type f \( -name 'warpscout-account.json' -o -name 'state.json' -o -name 'settings.json' -o -name 'cache.json' -o -name 'config.yaml' -o -name 'cache.db' -o -name 'xehn.log' -o -name 'vpngate-*.json' -o -name 'warp-report-*.txt' \) 2>/dev/null || true)
+LEAKED=$(find "$ROOT" -type f \( \
+  -name 'warpscout-account.json' -o -name 'state.json' -o \
+  -name 'settings.json' -o -name 'cache.json' -o \
+  -name 'config.yaml' -o -name 'cache.db' -o -name 'xehn.log' -o \
+  -name 'vpngate-*.json' -o -name 'warp-report-*.txt' \
+  \) 2>/dev/null || true)
 if [ -n "$LEAKED" ]; then
   echo "refusing to package credentials/runtime state: $LEAKED" >&2
   exit 1
