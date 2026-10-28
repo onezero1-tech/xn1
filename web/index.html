@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XEHN</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">XEHN</div>
+      <div class="ver" id="ver">—</div>
+    </div>
+    <nav id="nav">
+      <button data-page="home" class="active">首页</button>
+      <button data-page="settings">设置</button>
+      <button data-page="about">关于</button>
+      <button data-page="logs">日志</button>
+    </nav>
+    <div class="lang-toggle">
+      <button id="lang-btn">English</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <header id="page-head"></header>
+    <section id="page-body"></section>
+  </main>
+</div>
+
+<!-- Home page template -->
+<script type="text/x-template" id="tpl-home">
+  <div class="home">
+    <div class="connect-disc" id="connect-disc">
+      <div class="disc-inner">
+        <span class="state-word" id="state-word">连接</span>
+      </div>
+    </div>
+    <div class="proto-row">
+      <select id="proto-sel">
+        <option value="awg">AmneziaWG</option>
+        <option value="wg">WireGuard</option>
+        <option value="masque">MASQUE</option>
+        <option value="wwarp">WARP-in-WARP</option>
+        <option value="masque-mm">MASQUE in MASQUE</option>
+      </select>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="lbl">出口 IP</div>
+        <div class="val" id="exit-ip">—</div>
+      </div>
+      <div class="card">
+        <div class="lbl">国家</div>
+        <div class="val" id="exit-country">—</div>
+      </div>
+      <div class="card">
+        <div class="lbl">延迟</div>
+        <div class="val" id="exit-latency">—</div>
+      </div>
+    </div>
+    <div class="log-panel">
+      <div id="log-lines"></div>
+    </div>
+  </div>
+</script>
+
+<script type="text/x-template" id="tpl-about">
+  <div class="about">
+    <h2>关于 XEHN</h2>
+    <table id="about-table"></table>
+  </div>
+</script>
+
+<script type="text/x-template" id="tpl-logs">
+  <div class="logs">
+    <div class="log-tabs">
+      <button data-tab="run" class="active">运行日志</button>
+      <button data-tab="conn">连接记录</button>
+    </div>
+    <div id="log-view"></div>
+  </div>
+</script>
+
+<script type="text/x-template" id="tpl-settings">
+  <div class="settings">
+    <h2>设置</h2>
+    <div class="card">
+      <h3>代理</h3>
+      <label>混合端口 <input type="number" id="mixed-port" value="7890"></label>
+      <label>API 端口 <input type="number" id="api-port" value="9090"></label>
+    </div>
+    <div class="card">
+      <h3>路由</h3>
+      <label>模式
+        <select id="proxy-mode">
+          <option value="rule">规则</option>
+          <option value="global">全局</option>
+          <option value="direct">直连</option>
+        </select>
+      </label>
+    </div>
+    <button id="save-settings">保存</button>
+  </div>
+</script>
+
+<script src="app.js"></script>
+</body>
+</html>
