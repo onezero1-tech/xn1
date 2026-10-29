@@ -3,6 +3,7 @@ package core
 import (
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -99,7 +101,14 @@ func EnsureBinary(workDir, localPath string) (string, error) {
 
 func isExecutable(p string) bool {
 	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir() && fi.Size() > 0
+	if err != nil || fi.IsDir() || fi.Size() == 0 {
+		return false
+	}
+	// The exec bit is what execve actually checks on Linux: a 0644 file makes
+	// the kernel refuse with EACCES ("权限不够") even for the owner. mihomo's
+	// release zips do not always carry it, and a chmod-less file would leave
+	// the client looping into the download path forever.
+	return fi.Mode().Perm()&0o111 != 0
 }
 
 // downloadRelease fetches the latest release (falling back to defaultVersion)
@@ -164,20 +173,101 @@ func releaseFor(client *http.Client, tag string) (string, string, bool) {
 	return v, u, err == nil
 }
 
-// matchingAsset finds the asset for <os>-<arch> and prefers the non-compressed
-// zip. mihomo names assets like "mihomo-windows-amd64-v1.19.4.zip".
+// assetRank scores how well an asset name suits the current platform. The
+// ranking only ever runs over names containing the <os>-<arch> needle, so the
+// windows-only / non-windows-only spread never confuses it.
+func assetRank(name string) int {
+	switch {
+	case strings.HasSuffix(name, ".zip"):
+		return 3 // windows: the exe ships as a plain zip
+	case strings.HasSuffix(name, ".gz"):
+		return 2 // linux/darwin/freebsd: the raw binary rides inside a gzip
+	case strings.HasSuffix(name, ".deb"),
+		strings.HasSuffix(name, ".rpm"),
+		strings.HasSuffix(name, ".pkg.tar.zst"):
+		return 1 // distro packages: usable but heavier and arch-qualified
+	}
+	return 0
+}
+
+// matchingAsset finds the asset for <os>-<arch>. Windows ships a zip; every
+// other platform ships a gzipped raw binary, so the ".zip" suffix alone used to
+// make the lookup fail on linux with "no linux-amd64 asset in release".
 func matchingAsset(r release) (string, string, error) {
 	osPart, archPart, _ := ostuple()
 	needle := osPart + "-" + archPart
+	var fallbackURL string
+	var fallbackName string
 	for _, a := range r.Assets {
-		if strings.Contains(a.Name, needle) && strings.HasSuffix(a.Name, ".zip") {
+		if !strings.Contains(a.Name, needle) {
+			continue
+		}
+		rank := assetRank(a.Name)
+		if rank == 0 {
+			continue
+		}
+		switch rank {
+		case 3:
 			return r.TagName, a.BrowserDownloadURL, nil
+		case 2:
+			if fallbackURL == "" || assetNewer(a.Name, fallbackName) {
+				fallbackURL = a.BrowserDownloadURL
+				fallbackName = a.Name
+			}
 		}
 	}
-	return "", "", fmt.Errorf("core: no %s asset in release %s", needle, r.TagName)
+	if fallbackURL == "" {
+		return "", "", fmt.Errorf("core: no %s asset in release %s", needle, r.TagName)
+	}
+	return r.TagName, fallbackURL, nil
+}
+
+// assetNewer reports whether asset a carries a newer bare version than b,
+// e.g. "mihomo-linux-amd64-v1.19.33.gz" outranks "mihomo-linux-amd64-v1.19.32.gz".
+// Asset names carrying Go/toolchain or build-variant suffixes ("v1-go120",
+// "-compatible", "-softfloat") are still compared by the bare trailing version.
+func assetNewer(a, b string) bool {
+	av := bareVersion(a)
+	if av == nil {
+		return false
+	}
+	bv := bareVersion(b)
+	if bv == nil {
+		return false
+	}
+	for i := range *av {
+		if (*av)[i] != (*bv)[i] {
+			return (*av)[i] > (*bv)[i]
+		}
+	}
+	return false
+}
+
+// bareVersion extracts the trailing "vX.Y.Z" from an asset file name.
+func bareVersion(name string) *[]int {
+	i := strings.LastIndex(name, "v")
+	if i < 0 {
+		return nil
+	}
+	parts := strings.Split(strings.TrimPrefix(name[i:], "v"), ".")
+	var out []int
+	for _, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		out = append(out, n)
+	}
+	return &out
 }
 
 func unpackArchive(data []byte, workDir string) error {
+	// The linux/darwin/freebsd release assets are gzipped raw ELFs; the
+	// windows ones are zips. Sniff the gzip magic instead of guessing from the
+	// URL so both families unpack through the same entry point.
+	if len(data) > 2 && data[0] == 0x1f && data[1] == 0x8b {
+		return unpackGzip(data, workDir)
+	}
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return err
@@ -206,4 +296,22 @@ func unpackArchive(data []byte, workDir string) error {
 		rc.Close()
 	}
 	return nil
+}
+
+// unpackGzip inflates a release asset and installs the bare binary into
+// workDir under ExeName().
+func unpackGzip(data []byte, workDir string) error {
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(CoreInDir(workDir), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, zr); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
